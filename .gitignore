@@ -1,5 +1,6 @@
 external_data/
 out/
+output/
 
 .vscode/
 __pycache__

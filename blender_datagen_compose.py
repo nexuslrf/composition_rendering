@@ -43,8 +43,14 @@ logger = logging.getLogger(__name__)
 
 
 def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
+    if seed is not None:
+        random.seed(seed)
+        np.random.seed(seed)
+    else:
+        # If seed is None, set seed using current time and process id for randomness
+        seed_val = (int(time.time() * 1000) + os.getpid()) % (2**32)
+        random.seed(seed_val)
+        np.random.seed(seed_val)
 
 def check_msh_bbox(msh):
     vmin, vmax = msh.aabb
@@ -457,11 +463,8 @@ def main():
     parser.add_argument('-n', '--num_frames', type=int, default=1)
     parser.add_argument('-o', '--out_dir', type=str, default=".")
     parser.add_argument('--base_path', type=str, default=None)
-    parser.add_argument('--seed', type=int, default=42)
+    parser.add_argument('--seed', type=int, default=None)
     parser.add_argument('--config', type=str, default=None, help='Config file')
-    parser.add_argument('--obj_shards', type=int, default=1, help='Number of shards for object sampling')
-    parser.add_argument('--obj_shard_id', type=int, default=0, help='Shard index for object sampling')
-    # parser.add_argument('--num_rendering', type=int, default=400)
     parser.add_argument('--sample_shape_texture', action='store_true', help='Sample shape texture', default=False)
 
     FLAGS = parser.parse_args()
@@ -560,27 +563,16 @@ def main():
         logger.info(f"{key}: {FLAGS.__dict__[key]}")
     logger.info("---------")
 
-    # FLAGS.out_dir = 'out/' + FLAGS.out_dir
-    sub_folder = f"s{FLAGS.seed:06d}" 
-    # if FLAGS.iter > 1:
+    if FLAGS.seed is not None:
+        sub_folder = f"s{FLAGS.seed:06d}"         
+        set_seed(FLAGS.seed)
+    else:
+        set_seed(None)
+        sub_folder = 's' + time.strftime("%m%d%H")
+
     sub_folder = f"{FLAGS.video_mode}_{sub_folder}"
     FLAGS.out_dir = os.path.join(FLAGS.out_dir, sub_folder)
     os.makedirs(FLAGS.out_dir, exist_ok=True)
-
-    start_idx, round_idx = 0, 0
-    prev_complete_file = None
-    if FLAGS.dump_complete:
-        # COMPLETE_ROUND_ITER
-        round_offset = 100 # assume a job can be completed within 100 rounds of slurm submissions
-        round_idx = 0
-        complete_files = sorted(glob.glob("COMPLETE_*", root_dir=FLAGS.out_dir))
-        if len(complete_files) > 0:
-            complete_file = complete_files[-1]
-            _, round_idx, start_idx = complete_file.split('_')
-            start_idx, round_idx = int(start_idx) + 1, int(round_idx) + 1
-        FLAGS.seed = FLAGS.seed * round_offset + round_idx
-    
-    set_seed(FLAGS.seed)
 
     FLAGS.cam_phi_range = [np.deg2rad(x) + np.pi for x in FLAGS.cam_phi_range]
     FLAGS.cam_theta_range = [np.deg2rad(x) for x in FLAGS.cam_theta_range]
@@ -744,7 +736,6 @@ def main():
         # 50% metallic (close to 1)
         if np.random.uniform() < 0.5:
             metallic = 1 - metallic
-        metallic = 1.0 # NOTE: debug line
         if metallic > 0.5:
             base_color = np.random.randint(170, 255, size=3) / 255
         else:
@@ -827,11 +818,17 @@ def main():
         else:
             baseshape_files = [FLAGS.baseshape_path]
     
+    start_idx = 0
     iter_start_time = time.time()
     obj_iter = iter(obj_dataloader)
     for i in range(start_idx, FLAGS.num_rendering):
         logger.info(f"Rendering iteration {i}/{FLAGS.num_rendering}")
         name = f"{i:06d}"
+        if FLAGS.dump_complete:
+            new_complete_file = os.path.join(FLAGS.out_dir, f"COMPLETE_{name}")
+            if os.path.exists(new_complete_file):
+                logger.info(f"COMPLETE_{name} already exists, skip")
+                continue
         prefix = ''
         if FLAGS.num_frames > 1:
             prefix = f"{0:04d}."
@@ -913,6 +910,9 @@ def main():
             # plt.axis('off')
             plt.savefig(os.path.join(FLAGS.out_dir, name, f"placement.png"))
             plt.close(fig)
+        if FLAGS.dump_complete:
+            new_complete_file = os.path.join(FLAGS.out_dir, f"COMPLETE_{name}")
+            open(new_complete_file, 'w').close()
 
     # clean up and safely exit blender
     blender_utils.clear_scene()

@@ -17,7 +17,6 @@
     "random_env_rotation": true,
     "random_env_flip": true,
     "random_env_scale": [0.7, 1.4],
-    "out_dir": "out/blender_compose",
     "video_mode": "vtran_obj",
     "num_rendering": 2,
     "cam_phi_range": [60, 120],
@@ -43,5 +42,6 @@
     "shapes_scale_range": [0.3, 0.8],
     "shapes_rotation_range": [0, 360],
     "shapes_placement_bbox": [-1.5, -1.5, 1.5, 1.5],
-    "sample_shape_texture": true
+    "sample_shape_texture": true,
+    "dump_complete": false
 }
