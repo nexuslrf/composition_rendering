@@ -10,4 +10,4 @@ matplotlib
 PyYAML
 scipy
 tyro
-
+torch
