@@ -1,0 +1,5 @@
+external_data/
+out/
+
+.vscode/
+__pycache__
