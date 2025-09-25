@@ -61,8 +61,8 @@ def check_msh_bbox(msh):
     return True
 
 def post_process_rendering(output_dir, feature_fmt='jpg'):
-    # TODO:
     blender_passes = ['rgb', 'normal', 'depth', 'albedo', 'orm']
+    mask = 0
     for p in blender_passes:
         img_list = sorted(glob.glob(os.path.join(output_dir, f'{p}.*')))
         if p == 'normal' and len(img_list) > 0:
@@ -99,10 +99,11 @@ def post_process_rendering(output_dir, feature_fmt='jpg'):
                 os.remove(img_path)
             elif p == 'orm':
                 orm = image_utils.read_img(img_path)
-                roughness, metalness = orm[..., 1], orm[..., 2]
-                for key, value in zip(['roughness', 'metalness'], [roughness, metalness]):
+                roughness, metallic = orm[..., 1:2], orm[..., 2:3]
+                for key, value, bg_color in zip(['roughness', 'metallic'], [roughness, metallic], [0.5, 0]):
                     img_new_name = f'{pidx:04d}.{fidx:04d}.{key}.{feature_fmt}'
-                    image_utils.save_image(os.path.join(output_dir, img_new_name), value)
+                    value = value * (1-mask) + mask * bg_color
+                    image_utils.save_image(os.path.join(output_dir, img_new_name), value[..., 0])
                 os.remove(img_path)
             else:
                 # os.rename(img_path, os.path.join(output_dir, img_new_name))
@@ -383,8 +384,8 @@ def render_scene(
                 passes=['normal', 'depth'], suffix=f'.{0:04d}') # NOTE: ['rgb', 'diffcol'] is removed here
             blender_utils.render_albedo_and_material(output_dir=save_folder, passes=['albedo', 'orm'], suffix=f'.{0:04d}')
             blender_passes.extend(['normal', 'depth', 'albedo', 'orm'])
-        else:
-            blender_utils.setup_compositor_nodes(output_dir=save_folder, passes=['rgb'], suffix=f'.{0:04d}')
+        # else:
+        #     blender_utils.setup_compositor_nodes(output_dir=save_folder, passes=['rgb'], suffix=f'.{lgt_i:04d}')
         blender_utils.render_all_frames(output_dir=save_folder, num_frames=num_frames, suffix=f'rgb.{lgt_i:04d}')
         
         # dump the meta data
@@ -435,7 +436,7 @@ class GLTFFileManger:
                 sample_success = True
             try:
                 logger.info(f'Processing: {file}')
-                _obj_mesh = blender_utils.add_glb_object(
+                _obj_mesh = blender_utils.add_object_file(
                     file, with_empty=True, recenter=True, rescale=self.rescale
                 )
                 if self.check_bbox and not check_msh_bbox(obj_mesh):
@@ -447,7 +448,7 @@ class GLTFFileManger:
                     sample_success = True
             except Exception as e:
                 logger.info(f'---> Error: {e}, skipping file {file}')
-                file[idx].remove(file)
+                self.files[idx].remove(file)
         
         return {'mesh': obj_mesh, 'name': file}
     
@@ -503,6 +504,8 @@ def main():
     FLAGS.dump_irradiance     = False
     FLAGS.dump_format         = 'jpg'
     FLAGS.dump_complete       = False
+    FLAGS.dump_blend          = False
+    FLAGS.dump_placement      = False
     FLAGS.video_mode          = 'orbit_cam' # 'orbit_cam', 'oscil_cam', 'orbit_lgt'
     # Sampling config
     FLAGS.glbs_check_bbox          = False
@@ -540,9 +543,7 @@ def main():
     # FLAGS.tonemap_type        = 'aces'
     # FLAGS.tonemap_func        = None
     # FLAGS.temporal_denoising       = False
-    # FLAGS.ocio_config         = None
-    # FLAGS.ocio_dst            = 'AgX Base sRGB'
-
+    
     FLAGS.analytical_sky      = False
     FLAGS.use_objaverse       = False
     FLAGS.objaverse_selection = None
@@ -691,7 +692,7 @@ def main():
 
     def sample_shape(shapes_files, obj_idx=0):
         target_file = np.random.choice(shapes_files)
-        ref_mesh = blender_utils.add_glb_object(target_file, with_empty=True, recenter=True, rescale=True)
+        ref_mesh = blender_utils.add_object_file(target_file, with_empty=True, recenter=True, rescale=True)
         mesh_name = target_file
 
         # Sample the object rotation
@@ -781,8 +782,8 @@ def main():
     if not FLAGS.use_objaverse:
         if not os.path.isfile(FLAGS.base_path):
             obj_files.append(glob.glob(os.path.join(FLAGS.base_path, "*.glb")) + \
-                glob.glob(os.path.join(FLAGS.base_path, "*.obj")) + \
-                glob.glob(os.path.join(FLAGS.base_path, "*.gltf")))
+                glob.glob(os.path.join(FLAGS.base_path, "*.gltf")) + \
+                glob.glob(os.path.join(FLAGS.base_path, "*.obj")))
         else:
             obj_files.append(np.loadtxt(FLAGS.base_path, dtype=str).tolist())
     else:
@@ -843,7 +844,7 @@ def main():
         if num_planes > 0:
             plane_idx = np.random.choice(num_planes, size=1, p=FLAGS.plane_sample_weight)[0]
             # insert plane 
-            placement_plane = blender_utils.add_glb_object(placement_plane_path[plane_idx], with_empty=True, recenter=True, rescale=True)
+            placement_plane = blender_utils.add_object_file(placement_plane_path[plane_idx], with_empty=True, recenter=True, rescale=True)
             placement_plane.apply_transform((0, 0, 0), scale=placement_plane_scale)
             plane_vmin, plane_vmax = placement_plane.aabb
             vz = plane_vmin[2]
@@ -902,14 +903,16 @@ def main():
 
         post_process_rendering(os.path.join(FLAGS.out_dir, name), feature_fmt=FLAGS.dump_format)
 
-        # save blender scene
-        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(FLAGS.out_dir, name, f"scene.blend"))
-        # Plot placement grid with some color map
-        fig = plt.figure()
-        plt.imshow(placement_grid.T, cmap='tab20', vmin=0, vmax=placement_grid.max().item() + 1)
-        # plt.axis('off')
-        plt.savefig(os.path.join(FLAGS.out_dir, name, f"placement.png"))
-        plt.close(fig)
+        if FLAGS.dump_blend:
+            # save blender scene
+            bpy.ops.wm.save_as_mainfile(filepath=os.path.join(FLAGS.out_dir, name, f"scene.blend"))
+        if FLAGS.dump_placement:
+            # Plot placement grid with some color map
+            fig = plt.figure()
+            plt.imshow(placement_grid.T, cmap='tab20', vmin=0, vmax=placement_grid.max().item() + 1)
+            # plt.axis('off')
+            plt.savefig(os.path.join(FLAGS.out_dir, name, f"placement.png"))
+            plt.close(fig)
 
     # clean up and safely exit blender
     blender_utils.clear_scene()

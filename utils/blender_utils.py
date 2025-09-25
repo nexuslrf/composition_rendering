@@ -149,11 +149,11 @@ class ObjContainer:
         
         # Define texture file patterns
         texture_patterns = {
-            'diffuse': ['*_diff_*.jpg', '*_diff_*.png', '*_diff_*.exr', 'albedo.png', 'diffuse.png', 'basecolor.png', 'color.png'],
-            'roughness': ['*_rough_*.jpg', '*_rough_*.png', '*_rough_*.exr', 'roughness.png', 'rough.png'],
-            'normal': ['*_nor_gl_*.exr', '*_nor_gl_*.png', '*_normal_*.png', 'normal.png', 'normal_gl.png'],
-            'metallic': ['*_metal_*.jpg', '*_metal_*.png', '*_metal_*.exr', 'metallic.png', 'metalness.png'],
-            'displacement': ['*_disp_*.png', '*_disp_*.exr', '*_height_*.png', 'displacement.png', 'height.png']
+            'diffuse': ['col*', 'diff*', 'albedo*', 'basecol*'],
+            'roughness': ['rough*'],
+            'normal': ['nor*'],
+            'metallic': ['metal*'],
+            'displacement': ['disp*', 'height*']
         }
         
         # Load diffuse/albedo texture
@@ -389,12 +389,15 @@ def clear_scene():
             bpy.data.images.remove(block)
     
 
-def add_glb_object(glb_path, with_empty=True, recenter=True, rescale=True):
+def add_object_file(object_path, with_empty=True, recenter=True, rescale=True):
     """Load GLB file into Blender"""
-    bpy.ops.import_scene.gltf(filepath=glb_path)
+    if object_path.endswith('.glb') or object_path.endswith('.gltf'):
+        bpy.ops.import_scene.gltf(filepath=object_path)
+    elif object_path.endswith('.obj'):
+        bpy.ops.wm.obj_import(filepath=object_path)
     appended_objs = bpy.context.selected_objects
 
-    return ObjContainer(appended_objs, with_empty, recenter, file_name=glb_path, rescale=rescale)
+    return ObjContainer(appended_objs, with_empty, recenter, file_name=object_path, rescale=rescale)
 
 def add_blender_object(blendfile, obj_name, with_empty=True, recenter=True, rescale=True):
     # Use the appropriate path separator for the OS
