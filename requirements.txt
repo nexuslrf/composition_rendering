@@ -8,6 +8,7 @@ opencv-python<4.9.0
 OpenEXR
 matplotlib
 PyYAML
+omegaconf>=2.3.0
 scipy
 tyro
 torch

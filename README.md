@@ -42,7 +42,7 @@ conda install conda-forge::gxx=11.4.0 mesalib glew glm menpo::glfw3 conda-forge:
 You can directly run example configs with provided assets:
 
 ```bash
-python blender_datagen_compose.py --config configs/render_orbit_cam.json --out_dir output/blender_compose
+python blender_datagen_compose.py --config configs/render_orbit_cam.yaml out_dir=output/blender_compose
 ```
 
 You can also switch to different configs for different video rendering.
@@ -62,13 +62,11 @@ Edit the config paths to match your rendering assets.
 ## Configuration reference
 
 
-CLI flags (can be overridden by config):
-- `--config`: JSON config file with parameters
-- `-n/--num_frames`: frames per clip
-- `-o/--out_dir`: root output directory
-- `--base_path`: directory or txt file of assets to sample
-- `--seed`: RNG seed, default is None which means using current time and process id for randomness
-- `--sample_shape_texture`: allow sampling textures for basic shapes (if available)
+Configuration system:
+- `--config`: YAML config file loaded with OmegaConf
+- Dotlist overrides: pass `key=value` pairs after `--config` to override, e.g. `num_frames=8 video_mode=orbit_lgt`
+  - Nested keys use dots, lists use brackets, e.g. `resolution=[512,512]`, `placement_plane_textures=data/textures`
+Common keys:
 
 The script loads defaults, then merges any keys from `--config`. Common keys:
 
@@ -157,7 +155,7 @@ Naming: `<lgt_idx>.<frame_idx>.<pass>.<ext>`
 
 - Main entrypoint: `blender_datagen_compose.py`
 - Utilities: `utils/blender_utils.py`, `utils/render_utils.py`, `utils/image_utils.py`
-- Example configs: `configs/*.json`
+- Example configs: `configs/*.yaml`
 
 ## Acknowledgments
 WIP

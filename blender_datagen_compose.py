@@ -27,6 +27,8 @@ from pathlib import Path
 from shapely.geometry import Polygon
 from utils import blender_utils, render_utils, image_utils
 import matplotlib.pyplot as plt
+from omegaconf import OmegaConf, DictConfig
+from types import SimpleNamespace
 
 DEPTH_MAX = 1000.0
 
@@ -459,109 +461,124 @@ class GLTFFileManger:
         return {'mesh': obj_mesh, 'name': file}
     
 def main():
-    parser = argparse.ArgumentParser(description='difftracer')
-    parser.add_argument('-n', '--num_frames', type=int, default=1)
-    parser.add_argument('-o', '--out_dir', type=str, default=".")
+    # Parse --config and support legacy flags; additional overrides use OmegaConf dotlist (key=val)
+    parser = argparse.ArgumentParser(description='composition_rendering')
+    parser.add_argument('--config', type=str, default=None, help='YAML config file')
+    # Legacy convenience flags retained for compatibility
+    parser.add_argument('-n', '--num_frames', type=int, default=None)
+    parser.add_argument('-o', '--out_dir', type=str, default=None)
     parser.add_argument('--base_path', type=str, default=None)
     parser.add_argument('--seed', type=int, default=None)
-    parser.add_argument('--config', type=str, default=None, help='Config file')
-    parser.add_argument('--sample_shape_texture', action='store_true', help='Sample shape texture', default=False)
+    args, unknown = parser.parse_known_args()
 
-    FLAGS = parser.parse_args()
-    FLAGS.cam_near_far = [0.1, 1000.0]
-    FLAGS.resolution = [256, 256] # [height, width]
-    FLAGS.baseshape_path = None
-    FLAGS.envlight = "data/envmap/aerodynamics_workshop_512.hdr"
-    FLAGS.env_scale = 1.0
-    FLAGS.env_res = [256,512]
-    FLAGS.probe_res           = 256         # Env map probe resolution
+    # Defaults
+    default_cfg = {
+        'seed': None,
+        'out_dir': '.',
+        'base_path': None,
+        'cam_near_far': [0.1, 1000.0],
+        'resolution': [256, 256],
+        'baseshape_path': None,
+        'envlight': 'data/envmap/aerodynamics_workshop_512.hdr',
+        'env_scale': 1.0,
+        'env_res': [256, 512],
+        'probe_res': 256,
+        'spp': 8,
+        'use_denoise': 'OPTIX',
+        'transparent_bg': True,
+        'radius_range': [2.0, 4.0],
+        'varying_radius': False,
+        'num_files': None,
+        'random_env_rotation': True,
+        'random_env_flip': True,
+        'random_env_scale': None,
+        'bg_color': [1.0, 1.0, 1.0],
+        'bg_features': [0.0, 0.0, 0.0],
+        'dump_env_bg': False,
+        'dump_alpha': False,
+        'ray_depth': 1,
+        'num_workers': 0,
+        'timeout': -1,
+        'fov_range': [45.0, 45.0],
+        'dump_features': False,
+        'num_rendering': 10,
+        'num_lighting': 1,
+        'cam_phi_range': [0, 360],
+        'cam_theta_range': [0, 90],
+        'cam_t_range': [0, 0],
+        'dump_shading': False,
+        'dump_splitsum': False,
+        'dump_envmap': False,
+        'dump_ball_env': False,
+        'dump_irradiance': False,
+        'dump_format': 'jpg',
+        'dump_complete': False,
+        'dump_blend': False,
+        'dump_placement': False,
+        'video_mode': 'orbit_cam',
+        # Sampling config
+        'glbs_check_bbox': False,
+        'glbs_multi_sample_weight': None,
+        'glbs_rescale': True,
+        'glbs_random_sample': True,
+        'glbs_per_scene': 2,
+        'glbs_scale_range': [1.0, 1.5],
+        'glbs_rotation_range': [-45, 45],
+        'glbs_placement_bbox': [-1.0, -1.0, 1.0, 1.0],
+        'shapes_per_scene': 3,
+        'shapes_scale_range': [0.3, 0.8],
+        'shapes_rotation_range': [-45, 45],
+        'shapes_placement_bbox': [-1.5, -1.5, 1.5, 1.5],
+        'placement_centered': False,
+        'placement_bbox': [-1.5, -1.5, 1.5, 1.5],
+        'placement_grid_res': [40, 40],
+        'placement_bbox_scale': 1.1,
+        'placement_plane_offset': [0, 0, -0.5],
+        'placement_plane_scale': 10,
+        'placement_plane': 'data/plane_basic/plane.glb',
+        'plane_sample_weight': None,
+        'envlight_sample_weight': None,
+        'texture_sample_weight': None,
+        'placement_plane_textures': None,
+        'texture_match_string': '*/*/textures',
+        'prefix_in_folder': False,
+        # Unsupported/unused but kept for completeness
+        'analytical_sky': False,
+        'use_objaverse': False,
+        'objaverse_selection': None,
+        'num_frames': 8,
+        'sample_shape_texture': False,
+    }
 
-    FLAGS.spp                 = 8
-    FLAGS.use_denoise         = 'OPTIX'
-    FLAGS.transparent_bg      = True
-    # FLAGS.radius              = 3.0
-    FLAGS.radius_range        = [2.0, 4.0]
-    FLAGS.varying_radius      = False
-    FLAGS.num_files           = None
-    FLAGS.random_env_rotation = True
-    FLAGS.random_env_flip     = True
-    FLAGS.random_env_scale    = None
-    FLAGS.bg_color            = [1.0, 1.0, 1.0]
-    FLAGS.bg_features         = [0.0, 0.0, 0.0]
-    FLAGS.dump_env_bg         = False
-    FLAGS.dump_alpha          = False
-    FLAGS.ray_depth           = 1
-    FLAGS.num_workers         = 0
-    FLAGS.timeout             = -1
-    FLAGS.fov_range           = [45.0, 45.0] # Min/max fov in degrees
-    FLAGS.dump_features       = False
-    FLAGS.num_rendering       = 10
-    FLAGS.num_lighting        = 1
-    FLAGS.cam_phi_range       = [0, 360]
-    FLAGS.cam_theta_range     = [0, 90]
-    FLAGS.cam_t_range         = [0, 0]
-    FLAGS.dump_shading        = False
-    FLAGS.dump_splitsum       = False
-    FLAGS.dump_envmap         = False
-    FLAGS.dump_ball_env       = False
-    FLAGS.dump_irradiance     = False
-    FLAGS.dump_format         = 'jpg'
-    FLAGS.dump_complete       = False
-    FLAGS.dump_blend          = False
-    FLAGS.dump_placement      = False
-    FLAGS.video_mode          = 'orbit_cam' # 'orbit_cam', 'oscil_cam', 'orbit_lgt'
-    # Sampling config
-    FLAGS.glbs_check_bbox          = False
-    FLAGS.glbs_multi_sample_weight = None
-    FLAGS.glbs_rescale             = True
-    FLAGS.glbs_random_sample       = True
-    FLAGS.glbs_per_scene           = 2
-    FLAGS.glbs_scale_range         = [1.0, 1.5] # [min, max]
-    FLAGS.glbs_rotation_range      = [-45, 45]
-    FLAGS.glbs_placement_bbox      = [-1.0, -1.0, 1.0, 1.0] # [min.x, min.y, max.x, max.y]
-    FLAGS.shapes_per_scene         = 3
-    FLAGS.shapes_scale_range       = [0.3, 0.8] # [min, max]
-    FLAGS.shapes_rotation_range    = [-45, 45]
-    FLAGS.shapes_placement_bbox    = [-1.5, -1.5, 1.5, 1.5] # [min.x, min.y, max.x, max.y]
-   
-    FLAGS.placement_centered       = False
-    FLAGS.placement_bbox           = [-1.5, -1.5, 1.5, 1.5]
-    FLAGS.placement_grid_res       = [40, 40]
-    FLAGS.placement_bbox_scale     = 1.1
-    FLAGS.placement_plane_offset   = [0, 0, -0.5]
-    FLAGS.placement_plane_scale    = 10
-    FLAGS.placement_plane          = "data/plane_basic/plane.glb"
-    
-    FLAGS.plane_sample_weight      = None
-    FLAGS.envlight_sample_weight   = None
-    FLAGS.texture_sample_weight    = None
+    cfg: DictConfig = OmegaConf.create(default_cfg)
+    if args.config is not None:
+        file_cfg = OmegaConf.load(args.config)
+        cfg = OmegaConf.merge(cfg, file_cfg)
+    # Dotlist CLI overrides (e.g., num_frames=8 out_dir=output/ path.with.dots=value)
+    if len(unknown) > 0:
+        dotlist = [tok for tok in unknown if '=' in tok]
+        if len(dotlist) > 0:
+            cli_cfg = OmegaConf.from_cli(dotlist)
+            cfg = OmegaConf.merge(cfg, cli_cfg)
 
-    FLAGS.placement_plane_textures = None
-    FLAGS.texture_match_string     = "*/*/textures"
+    # Apply legacy flags if provided
+    if args.out_dir is not None:
+        cfg.out_dir = args.out_dir
+    if args.num_frames is not None:
+        cfg.num_frames = int(args.num_frames)
+    if args.base_path is not None:
+        cfg.base_path = args.base_path
+    if args.seed is not None:
+        cfg.seed = int(args.seed)
 
-    FLAGS.prefix_in_folder         = False
+    # Convert to plain python containers to safely mutate later
+    _flags_container = OmegaConf.to_container(cfg, resolve=True)
+    FLAGS = SimpleNamespace(**_flags_container)
 
-    ######### Unsupported flags #########
-    # FLAGS.tonemap             = True
-    # FLAGS.tonemap_type        = 'aces'
-    # FLAGS.tonemap_func        = None
-    # FLAGS.temporal_denoising       = False
-    
-    FLAGS.analytical_sky      = False
-    FLAGS.use_objaverse       = False
-    FLAGS.objaverse_selection = None
-    #####################################
-
-    if FLAGS.config is not None:
-        data = json.load(open(FLAGS.config, 'r'))
-        for key in data:
-            FLAGS.__dict__[key] = data[key]
-    
-    logger.info("Config / Flags:")
-    logger.info("---------")
-    for key in FLAGS.__dict__.keys():
-        logger.info(f"{key}: {FLAGS.__dict__[key]}")
-    logger.info("---------")
+    logger.info('Config / Flags (OmegaConf):')
+    logger.info('---------')
+    logger.info('\n' + OmegaConf.to_yaml(cfg))
+    logger.info('---------')
 
     if FLAGS.seed is not None:
         sub_folder = f"s{FLAGS.seed:06d}"         
@@ -574,8 +591,8 @@ def main():
     FLAGS.out_dir = os.path.join(FLAGS.out_dir, sub_folder)
     os.makedirs(FLAGS.out_dir, exist_ok=True)
 
-    FLAGS.cam_phi_range = [np.deg2rad(x) + np.pi for x in FLAGS.cam_phi_range]
-    FLAGS.cam_theta_range = [np.deg2rad(x) for x in FLAGS.cam_theta_range]
+    FLAGS.cam_phi_range = [float(np.deg2rad(float(x)) + np.pi) for x in list(FLAGS.cam_phi_range)]
+    FLAGS.cam_theta_range = [float(np.deg2rad(float(x))) for x in list(FLAGS.cam_theta_range)]
     assert FLAGS.video_mode in ['orbit_cam', 'oscil_cam', 'orbit_lgt', 'none', 'rotat_obj', 'vtran_obj', 'dolly_cam']
 
     # Composition Sampling Related
