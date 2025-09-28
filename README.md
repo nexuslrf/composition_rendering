@@ -58,6 +58,16 @@ You can also switch to different configs for different video rendering.
 
 Edit the config paths to match your rendering assets.
 
+## Video Types:
+
+
+|  | `orbit_cam` | `oscil_cam` | `orbit_lgt` | `rotat_obj` | `vtran_obj` | `dolly_cam` |
+|---|---|---|---|---|---|---|
+| What it shows | Camera orbits around the scene | Camera oscillates near a viewpoint | Environment light rotates; camera is static | Objects rotate in place | Objects translate vertically | Dolly zoom (push/pull with focal change) |
+| Preview | <img src="data/teaser/orbit_cam.gif" alt="orbit_cam" width="220" loading="lazy" /> | <img src="data/teaser/oscil_cam.gif" alt="oscil_cam" width="220" loading="lazy" /> | <img src="data/teaser/orbit_lgt.gif" alt="orbit_lgt" width="220" loading="lazy" /> | <img src="data/teaser/rotat_obj.gif" alt="rotat_obj" width="220" loading="lazy" /> | <img src="data/teaser/vtran_obj.gif" alt="vtran_obj" width="220" loading="lazy" /> | <img src="data/teaser/dolly_cam.gif" alt="dolly_cam" width="220" loading="lazy" /> |
+
+
+
 
 ## Configuration reference
 
