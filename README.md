@@ -171,6 +171,7 @@ Naming: `<lgt_idx>.<frame_idx>.<pass>.<ext>`
 
 - The envmap rendering part is inspired by [nvdiffrec](https://github.com/nvlabs/nvdiffrec).
 - The albedo and metarial rendering part is adopted from [MaterialFusion](https://github.com/yehonathanlitman/MaterialFusion).
+- [InfiniGen](https://github.com/princeton-vl/infinigen) for setting up the Blender as a standalone Python package.
 
 
 ## License
