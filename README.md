@@ -1,8 +1,12 @@
 # Composition Rendering (Blender Data Generator)
 
-<div align="center">
+
+https://github.com/user-attachments/assets/da94c173-0182-4fd8-b089-dfe45cc895aa
+
+
+<!-- <div align="center">
   <img src="data/teaser/stitch_video.gif" alt=""  width="90%" />
-</div>
+</div> -->
 
 <div align="center">
   <img src="data/teaser/teaser.png" alt=""  width="80%" />
