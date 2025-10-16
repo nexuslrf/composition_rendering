@@ -12,10 +12,6 @@ https://github.com/user-attachments/assets/da94c173-0182-4fd8-b089-dfe45cc895aa
   <img src="teaser/teaser.png" alt=""  width="80%" />
 </div>
 
-<div align="center">
-  <img src="teaser/drop_phy_example.gif" alt=""  width="40%" />
-</div>
-
 Generate synthetic image datasets by composing multiple 3D objects on a plane and rendering them in Blender Cycles. The pipeline supports randomized placements, materials, HDRI environment lighting, and several camera/light motion modes. It produces RGB plus auxiliary features (normal, depth, albedo, roughness, metallic) and per-frame metadata. The generated data can be used for training generative rendering models such as [Diffusion Renderer](https://research.nvidia.com/labs/toronto-ai/DiffusionRenderer/), [UniRelight](https://research.nvidia.com/labs/toronto-ai/UniRelight/), and [LuxDiT](https://research.nvidia.com/labs/toronto-ai/LuxDiT/).
 
 **Note: This repo is a blender-based re-implementation of the data generation pipeline used in Diffusion Renderer. Some rendering buffers may differ from the original implementation.**
@@ -27,7 +23,11 @@ Generate synthetic image datasets by composing multiple 3D objects on a plane an
 - **Lighting**: sample HDRI environment maps (EXR/HDR) with optional flips, rotations, and exposure scalings.
 - **Camera/motion**: orbiting camera, oscillating camera, orbiting environment light, object rotation, object vertical translation, and dolly zoom.
 - **Outputs**: RGB, normal, depth, albedo, roughness, metallic, and `meta.json` with camera and environment parameters. Optional debug outputs (environment projections, placement grid, `.blend`).
+- **Physics-based object dropping simulation**: physically drops scene objects onto a ground plane using Blender's rigid body simulation, then renders a short sequence.
 
+<div align="center">
+  <img src="teaser/drop_phy_example.gif" alt=""  width="60%" />
+</div>
 
 ## Installation
 
