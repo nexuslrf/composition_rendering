@@ -9,6 +9,10 @@ https://github.com/user-attachments/assets/da94c173-0182-4fd8-b089-dfe45cc895aa
 </div> -->
 
 <div align="center">
+  <img src="teaser/drop_phy_example.gif" alt=""  width="60%" />
+</div>
+
+<div align="center">
   <img src="teaser/teaser.png" alt=""  width="80%" />
 </div>
 
