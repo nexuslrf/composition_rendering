@@ -9,11 +9,11 @@ https://github.com/user-attachments/assets/da94c173-0182-4fd8-b089-dfe45cc895aa
 </div> -->
 
 <div align="center">
-  <img src="teaser/drop_phy_example.gif" alt=""  width="60%" />
+  <img src="teaser/teaser.png" alt=""  width="80%" />
 </div>
 
 <div align="center">
-  <img src="teaser/teaser.png" alt=""  width="80%" />
+  <img src="teaser/drop_phy_example.gif" alt=""  width="40%" />
 </div>
 
 Generate synthetic image datasets by composing multiple 3D objects on a plane and rendering them in Blender Cycles. The pipeline supports randomized placements, materials, HDRI environment lighting, and several camera/light motion modes. It produces RGB plus auxiliary features (normal, depth, albedo, roughness, metallic) and per-frame metadata. The generated data can be used for training generative rendering models such as [Diffusion Renderer](https://research.nvidia.com/labs/toronto-ai/DiffusionRenderer/), [UniRelight](https://research.nvidia.com/labs/toronto-ai/UniRelight/), and [LuxDiT](https://research.nvidia.com/labs/toronto-ai/LuxDiT/).
