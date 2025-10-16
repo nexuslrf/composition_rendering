@@ -30,7 +30,6 @@ glbs_placement_bbox: [-1.0, -1.0, 1.0, 1.0]
 glbs_rescale: true
 placement_plane: data/plane_basic/plane.glb
 placement_plane_textures: data/textures
-texture_match_string: "*/textures"
 texture_sample_weight: null
 placement_bbox_scale: 1.1
 placement_plane_offset: [0, 0, -0.5]
@@ -43,5 +42,5 @@ shapes_rotation_range: [0, 360]
 shapes_placement_bbox: [-1.5, -1.5, 1.5, 1.5]
 sample_shape_texture: true
 dump_complete: false
-dump_blend: true
+dump_blend: false
 

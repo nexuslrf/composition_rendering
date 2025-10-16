@@ -1,11 +1,11 @@
 # Composition Rendering (Blender Data Generator)
 
 <div align="center">
-  <img src="data/teaser/stitch_video.gif" alt=""  width="90%" />
+  <img src="teaser/stitch_video.gif" alt=""  width="90%" />
 </div>
 
 <div align="center">
-  <img src="data/teaser/teaser.png" alt=""  width="80%" />
+  <img src="teaser/teaser.png" alt=""  width="80%" />
 </div>
 
 Generate synthetic image datasets by composing multiple 3D objects on a plane and rendering them in Blender Cycles. The pipeline supports randomized placements, materials, HDRI environment lighting, and several camera/light motion modes. It produces RGB plus auxiliary features (normal, depth, albedo, roughness, metallic) and per-frame metadata. The generated data can be used for training generative rendering models such as [Diffusion Renderer](https://research.nvidia.com/labs/toronto-ai/DiffusionRenderer/), [UniRelight](https://research.nvidia.com/labs/toronto-ai/UniRelight/), and [LuxDiT](https://research.nvidia.com/labs/toronto-ai/LuxDiT/).
@@ -58,16 +58,64 @@ You can also switch to different configs for different video rendering.
 
 Edit the config paths to match your rendering assets.
 
+### Preparing texture assets
+
+- Each texture should be a directory containing PBR maps for a single material. The script looks for common names inside that directory via `apply_texture` (e.g., diffuse/albedo, roughness, normal, metallic, displacement).
+- Accepted filename tokens per channel (case-insensitive):
+  - Base color: `col*`, `diff*`, `albedo*`, `basecol*`
+  - Roughness: `rough*`
+  - Normal: `nor*` (OpenGL-style normal maps)
+  - Metallic: `metal*`
+  - Displacement/height: `disp*`, `height*`
+- Supported image formats include `.png`, `.jpg`, `.jpeg`, `.exr`, ...
+
+Example material directory layout:
+
+```text
+data/textures/blue_metal_plate_1k/
+  diff.jpg
+  rough.exr
+  nor_gl.exr
+  disp.png        # optional
+  metal.png       # optional
+```
+
+Configure `placement_plane_textures` to a glob that resolves to a list of such material directories:
+
+
+Optional sampling bias by substring match (applied to directory paths):
+
+```yaml
+texture_sample_weight:
+  wood: 2.0     # sample directories whose path contains "wood" more often
+  marble: 0.5   # sample directories with "marble" less often
+```
+
+Notes:
+- The script samples one material directory per scene for the ground plane; texture tiling scale is randomized internally.
+- Ensure each matched path is a directory that directly contains the texture image files (not just a parent folder of multiple materials).
+
 ## Video Types:
 
 
 |  | `orbit_cam` | `oscil_cam` | `orbit_lgt` | `rotat_obj` | `vtran_obj` | `dolly_cam` |
 |---|---|---|---|---|---|---|
 | What it shows | Camera orbits around the scene | Camera oscillates near a viewpoint | Environment light rotates; camera is static | Objects rotate in place | Objects translate vertically | Dolly zoom (push/pull with focal change) |
-| Preview | <img src="data/teaser/orbit_cam.gif" alt="orbit_cam" width="220" loading="lazy" /> | <img src="data/teaser/oscil_cam.gif" alt="oscil_cam" width="220" loading="lazy" /> | <img src="data/teaser/orbit_lgt.gif" alt="orbit_lgt" width="220" loading="lazy" /> | <img src="data/teaser/rotat_obj.gif" alt="rotat_obj" width="220" loading="lazy" /> | <img src="data/teaser/vtran_obj.gif" alt="vtran_obj" width="220" loading="lazy" /> | <img src="data/teaser/dolly_cam.gif" alt="dolly_cam" width="220" loading="lazy" /> |
+| Preview | <img src="teaser/orbit_cam.gif" alt="orbit_cam" width="220" loading="lazy" /> | <img src="teaser/oscil_cam.gif" alt="oscil_cam" width="220" loading="lazy" /> | <img src="teaser/orbit_lgt.gif" alt="orbit_lgt" width="220" loading="lazy" /> | <img src="teaser/rotat_obj.gif" alt="rotat_obj" width="220" loading="lazy" /> | <img src="teaser/vtran_obj.gif" alt="vtran_obj" width="220" loading="lazy" /> | <img src="teaser/dolly_cam.gif" alt="dolly_cam" width="220" loading="lazy" /> |
+
+### Experimental Mode: Physics-based Dropping (`drop_phy`)
+Physically drops scene objects onto a ground plane using Blender's rigid body simulation, then renders a short sequence.
+
+<div align="center">
+  <img src="teaser/drop_phy.gif" alt=""  width="60%" />
+</div>
 
 
+```bash
+python blender_datagen_compose.py --config configs/render_drop_phy.yaml out_dir=output/blender_drop_physics dump_video=True
+```
 
+Please go to drop physics's [README](physics/README.md) for more details.
 
 ## Configuration reference
 
@@ -112,8 +160,7 @@ Object sampling and placement
 - `shapes_per_scene`, `shapes_scale_range`, `shapes_rotation_range`, `shapes_placement_bbox`
 - `placement_plane`: plane `.glb` path; `placement_plane_scale` and `placement_plane_offset`
 - `placement_bbox`, `placement_grid_res`, `placement_bbox_scale`: grid-based collision avoidance
-- `placement_plane_textures`: directory of PBR texture folders to apply to planes
-- `texture_match_string`: glob for texture subfolders (e.g., `"*/*/textures"`)
+- `placement_plane_textures`: directory containing PBR texture folders to apply to planes
 - `texture_sample_weight`: optional dict of substring->weight to bias texture sampling
 
 Dumping and debugging

@@ -4,6 +4,7 @@ Blender Data Generation Script for Composition Rendering
 Reimplements datagen_compose.py functionality using Blender's Python API
 """
 
+from re import I
 import bpy
 import bmesh
 import math
@@ -19,6 +20,7 @@ import glob
 import numpy as np
 import copy
 import torch
+import imageio
 import imageio.v3 as iio
 os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 import cv2
@@ -68,7 +70,7 @@ def check_msh_bbox(msh):
             return False
     return True
 
-def post_process_rendering(output_dir, feature_fmt='jpg'):
+def post_process_rendering(output_dir, feature_fmt='jpg', dump_video=False, video_fps=24):
     blender_passes = ['rgb', 'normal', 'depth', 'albedo', 'orm']
     mask = 0
     for p in blender_passes:
@@ -116,6 +118,51 @@ def post_process_rendering(output_dir, feature_fmt='jpg'):
             else:
                 # os.rename(img_path, os.path.join(output_dir, img_new_name))
                 shutil.move(img_path, os.path.join(output_dir, img_new_name))
+
+    # Optionally dump videos from RGB frames grouped by lighting index
+    if dump_video:
+        # Accept any extension for RGB frames (png/jpg)
+        rgb_list = sorted(glob.glob(os.path.join(output_dir, f'*.rgb.*')))
+        # Group frames by lighting index (first token)
+        group_dict = {}
+        for fp in rgb_list:
+            base = os.path.basename(fp)
+            parts = base.split('.')
+            if len(parts) < 4:
+                continue
+            pidx_str, fidx_str = parts[0], parts[1]
+            try:
+                pidx = int(pidx_str)
+                fidx = int(fidx_str)
+            except Exception:
+                continue
+            group = group_dict.setdefault(pidx, [])
+            group.append((fidx, fp))
+
+        for pidx, frames in group_dict.items():
+            frames.sort(key=lambda x: x[0])
+            if len(frames) < 2:
+                continue
+
+            out_path = os.path.join(output_dir, f"{pidx:04d}.rgb.mp4")
+            with imageio.get_writer(out_path, fps=float(video_fps)) as writer:
+                for _, frame_path in frames:
+                    frame = iio.imread(frame_path)
+                    if frame is None:
+                        continue
+                    # Convert float images to uint8
+                    if frame.dtype.kind == 'f':
+                        frame = np.clip(frame, 0.0, 1.0)
+                        frame = (frame * 255.0 + 0.5).astype(np.uint8)
+                    elif frame.dtype != np.uint8:
+                        # Best-effort cast
+                        frame = np.clip(frame, 0, 255).astype(np.uint8)
+                    # Ensure color (H,W,3)
+                    if frame.ndim == 2:
+                        frame = np.repeat(frame[..., None], 3, axis=-1)
+                    writer.append_data(frame)
+            logger.info(f"Wrote video: {out_path}")
+
 
 def render_scene(
     mesh_list, mesh_meta, envlight_path_list, shortname, prefix, FLAGS
@@ -512,6 +559,7 @@ def main():
         'dump_ball_env': False,
         'dump_irradiance': False,
         'dump_format': 'jpg',
+        'dump_video': False,
         'dump_complete': False,
         'dump_blend': False,
         'dump_placement': False,
@@ -540,7 +588,6 @@ def main():
         'envlight_sample_weight': None,
         'texture_sample_weight': None,
         'placement_plane_textures': None,
-        'texture_match_string': '*/*/textures',
         'prefix_in_folder': False,
         # Unsupported/unused but kept for completeness
         'analytical_sky': False,
@@ -590,10 +637,14 @@ def main():
     sub_folder = f"{FLAGS.video_mode}_{sub_folder}"
     FLAGS.out_dir = os.path.join(FLAGS.out_dir, sub_folder)
     os.makedirs(FLAGS.out_dir, exist_ok=True)
+    try:
+        bpy.context.preferences.filepaths.use_relative_paths = False
+    except Exception:
+        pass
 
     FLAGS.cam_phi_range = [float(np.deg2rad(float(x)) + np.pi) for x in list(FLAGS.cam_phi_range)]
     FLAGS.cam_theta_range = [float(np.deg2rad(float(x))) for x in list(FLAGS.cam_theta_range)]
-    assert FLAGS.video_mode in ['orbit_cam', 'oscil_cam', 'orbit_lgt', 'none', 'rotat_obj', 'vtran_obj', 'dolly_cam']
+    assert FLAGS.video_mode in ['orbit_cam', 'oscil_cam', 'orbit_lgt', 'rotat_obj', 'vtran_obj', 'dolly_cam', 'drop_phy']
 
     # Composition Sampling Related
     glbs_placement_vmin, glbs_placement_vmax = np.array(FLAGS.glbs_placement_bbox[:2]), np.array(FLAGS.glbs_placement_bbox[2:])
@@ -611,9 +662,9 @@ def main():
     if placement_plane_path is None:
         placement_plane_path = []
     elif os.path.isdir(placement_plane_path):
-        placement_plane_path = sorted(glob.glob(placement_plane_path + "/*.glb"))
+        placement_plane_path = sorted([os.path.abspath(p) for p in glob.glob(placement_plane_path + "/*.glb")])
     else:
-        placement_plane_path = [placement_plane_path]
+        placement_plane_path = [os.path.abspath(placement_plane_path)]
 
     num_planes = len(placement_plane_path)
     plane_sample_weight = np.ones(num_planes)
@@ -776,7 +827,9 @@ def main():
     # plane textures
     plane_textures_path = []
     if FLAGS.placement_plane_textures is not None:
-        plane_textures_path = sorted(glob.glob(os.path.join(FLAGS.placement_plane_textures, FLAGS.texture_match_string)))
+        plane_textures_path = sorted([
+            os.path.abspath(p) for p in glob.glob(os.path.join(FLAGS.placement_plane_textures, '*'))
+        ])
         num_plane_textures = len(plane_textures_path)
         texture_sample_weight = np.ones(num_plane_textures)
         if FLAGS.texture_sample_weight is not None:
@@ -787,13 +840,14 @@ def main():
         FLAGS.texture_sample_weight = texture_sample_weight / texture_sample_weight.sum()
         
     obj_files = [] 
-    if not FLAGS.use_objaverse:
-        if not os.path.isfile(FLAGS.base_path):
-            obj_files.append(glob.glob(os.path.join(FLAGS.base_path, "*.glb")) + \
-                glob.glob(os.path.join(FLAGS.base_path, "*.gltf")) + \
-                glob.glob(os.path.join(FLAGS.base_path, "*.obj")))
+    if not FLAGS.use_objaverse and FLAGS.base_path is not None:
+        base_path_abs = os.path.abspath(FLAGS.base_path)
+        if not os.path.isfile(base_path_abs):
+            obj_files.append([os.path.abspath(p) for p in (glob.glob(os.path.join(base_path_abs, "*.glb")) + \
+                glob.glob(os.path.join(base_path_abs, "*.gltf")) + \
+                glob.glob(os.path.join(base_path_abs, "*.obj")))])
         else:
-            obj_files.append(np.loadtxt(FLAGS.base_path, dtype=str).tolist())
+            obj_files.append([os.path.abspath(p) for p in np.loadtxt(base_path_abs, dtype=str).tolist()])
     else:
         raise NotImplementedError("Objaverse is not supported yet")
 
@@ -809,15 +863,14 @@ def main():
     logger.info(f"Use {len(obj_dataloader)} glbs")
 
     # envlight 
-    if not os.path.isfile(FLAGS.envlight):
-        envlight_path_list = sorted(
-            glob.glob(os.path.join(FLAGS.envlight, "*.exr"))  + \
-            glob.glob(os.path.join(FLAGS.envlight, "*.hdr"))
-        )
-    elif FLAGS.envlight.endswith('.txt'):
-        envlight_path_list = np.loadtxt(FLAGS.envlight, dtype=str).tolist()
+    env_src = os.path.abspath(FLAGS.envlight)
+    if not os.path.isfile(env_src):
+        envlight_path_list = sorted([os.path.abspath(p) for p in (glob.glob(os.path.join(env_src, "*.exr"))  + \
+            glob.glob(os.path.join(env_src, "*.hdr")))])
+    elif env_src.endswith('.txt'):
+        envlight_path_list = [os.path.abspath(p) for p in np.loadtxt(env_src, dtype=str).tolist()]
     else:
-        envlight_path_list = [FLAGS.envlight]
+        envlight_path_list = [env_src]
 
     num_envlights = len(envlight_path_list)
     envlight_sample_weight = np.ones(num_envlights)
@@ -830,10 +883,11 @@ def main():
 
     baseshape_files = []
     if FLAGS.baseshape_path is not None:
-        if os.path.isdir(FLAGS.baseshape_path):
-            baseshape_files = glob.glob(os.path.join(FLAGS.baseshape_path, "*.glb"))
+        bsp = os.path.abspath(FLAGS.baseshape_path)
+        if os.path.isdir(bsp):
+            baseshape_files = [os.path.abspath(p) for p in glob.glob(os.path.join(bsp, "*.glb"))]
         else:
-            baseshape_files = [FLAGS.baseshape_path]
+            baseshape_files = [bsp]
     
     start_idx = 0
     iter_start_time = time.time()
@@ -913,9 +967,20 @@ def main():
         if not FLAGS.prefix_in_folder:
             os.makedirs(os.path.join(FLAGS.out_dir, name), exist_ok=True)
 
-        render_scene(mesh_list, mesh_meta, envlight_path_list, name, prefix, FLAGS)
+        if FLAGS.video_mode == 'drop_phy':
+            from modes.drop_physics import run as run_drop_physics
+            render_fn = run_drop_physics
+            logger.warning("Drop physics is not fully tested")
+        else:
+            render_fn = render_scene
 
-        post_process_rendering(os.path.join(FLAGS.out_dir, name), feature_fmt=FLAGS.dump_format)
+        render_fn(mesh_list, mesh_meta, envlight_path_list, name, prefix, FLAGS)
+
+        post_process_rendering(
+            os.path.join(FLAGS.out_dir, name),
+            feature_fmt=FLAGS.dump_format,
+            dump_video=FLAGS.dump_video
+        )
 
         if FLAGS.dump_blend:
             # save blender scene

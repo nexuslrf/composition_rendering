@@ -99,6 +99,7 @@ class ObjContainer:
                 - xxx_rough_*.* (roughness)
                 - xxx_metal_*.* (metallic)
         """
+        texture_dir = os.path.abspath(texture_dir)
         if not os.path.exists(texture_dir):
             logger.warning(f"Texture directory does not exist: {texture_dir}")
             return
@@ -116,6 +117,7 @@ class ObjContainer:
     
     def _create_material_from_textures(self, texture_dir, texture_scale=1.0):
         """Create a Blender material from texture files in the directory"""
+        texture_dir = os.path.abspath(texture_dir)
         texture_name = os.path.basename(texture_dir)
         material = bpy.data.materials.new(name=f"tex_{texture_name}")
         material.use_nodes = True
@@ -361,6 +363,25 @@ class ObjContainer:
 
 def clear_scene():
     """Clear all mesh objects from the scene, including hidden objects"""
+    # Clear frame handlers to avoid stale callbacks
+    try:
+        bpy.app.handlers.frame_change_pre.clear()
+        bpy.app.handlers.frame_change_post.clear()
+    except Exception:
+        pass
+
+    # Free physics caches and remove rigid body world if present
+    try:
+        bpy.ops.ptcache.free_bake_all()
+    except Exception:
+        pass
+    try:
+        scene = bpy.context.scene
+        if getattr(scene, 'rigidbody_world', None):
+            bpy.ops.rigidbody.world_remove()
+    except Exception:
+        pass
+
     # Unhide all objects so they can be selected and deleted
     for obj in bpy.data.objects:
         obj.hide_set(False)
@@ -391,10 +412,15 @@ def clear_scene():
 
 def add_object_file(object_path, with_empty=True, recenter=True, rescale=True):
     """Load GLB file into Blender"""
+    object_path = os.path.abspath(object_path)
     if object_path.endswith('.glb') or object_path.endswith('.gltf'):
         bpy.ops.import_scene.gltf(filepath=object_path)
     elif object_path.endswith('.obj'):
-        bpy.ops.wm.obj_import(filepath=object_path)
+        bpy.ops.wm.obj_import(
+            filepath=object_path, 
+            directory=os.path.dirname(object_path), 
+            files=[{"name": os.path.basename(object_path)}]
+        )
     appended_objs = bpy.context.selected_objects
 
     return ObjContainer(appended_objs, with_empty, recenter, file_name=object_path, rescale=rescale)
