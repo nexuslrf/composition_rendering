@@ -1,7 +1,7 @@
 ### Drop Physics Mode
 
 <div align="center">
-  <img src="teaser/drop_phy.gif" alt=""  width="60%" />
+  <img src="teaser/drop_phy_example.gif" alt=""  width="60%" />
 </div>
 
 Physically drops scene objects onto a ground plane using Blender's rigid body simulation, then renders a short sequence. Use this when you want realistic contacts, bounces, and frictional settling instead of purely kinematic motion.
