@@ -20,6 +20,7 @@ Generate synthetic image datasets by composing multiple 3D objects on a plane an
 
 ### Key features
 - **Asset composition**: place GLB/GLTF/OBJ assets plus optional basic shapes on a ground plane with collision-free grid placement.
+- **Objaverse integration**: directly load and render 3D models from the [Objaverse dataset](https://huggingface.co/datasets/allenai/objaverse) (800K+ objects) via on-the-fly downloads.
 - **Lighting**: sample HDRI environment maps (EXR/HDR) with optional flips, rotations, and exposure scalings.
 - **Camera/motion**: orbiting camera, oscillating camera, orbiting environment light, object rotation, object vertical translation, and dolly zoom.
 - **Outputs**: RGB, normal, depth, albedo, roughness, metallic, and `meta.json` with camera and environment parameters. Optional debug outputs (environment projections, placement grid, `.blend`).
@@ -55,13 +56,20 @@ python blender_datagen_compose.py --config configs/render_orbit_cam.yaml out_dir
 
 You can also switch to different configs for different video rendering.
 
+To render with models from the Objaverse dataset (800K+ objects):
+
+```bash
+python blender_datagen_compose.py --config configs/render_objaverse.yaml
+```
 
 ## Data and assets
 
-- 3D assets: point `base_path` to a directory of assets or a text file listing absolute paths. Supported: `.glb`, `.gltf`, `.obj`.
-- Environment maps: point `envlight` to a directory of `.exr`/`.hdr` files, a single file, or a `.txt` list.
-- Ground plane: set `placement_plane` to a plane `.glb` (e.g., `data/plane_basic/plane.glb`).
-- Basic shapes: set `baseshape_path` to a folder with shape `.glb` files (e.g., `data/basicshapes`).
+- **3D assets**: 
+  - **Local files**: point `base_path` to a directory of assets or a text file listing absolute paths. Supported: `.glb`, `.gltf`, `.obj`.
+  - **Objaverse dataset**: set `use_objaverse: true` and optionally provide `objaverse_csv` path specifying valid instance ids. Models are automatically downloaded from HuggingFace.
+- **Environment maps**: point `envlight` to a directory of `.exr`/`.hdr` files, a single file, or a `.txt` list.
+- **Ground plane**: set `placement_plane` to a plane `.glb` (e.g., `data/plane_basic/plane.glb`).
+- **Basic shapes**: set `baseshape_path` to a folder with shape `.glb` files (e.g., `data/basicshapes`).
 
 
 Edit the config paths to match your rendering assets.
@@ -158,7 +166,11 @@ Environment lighting
 - `num_lighting`: number of lighting variations per scene
 
 Object sampling and placement
-- `base_path`: directory or txt-file list of assets to sample
+- `base_path`: directory or txt-file list of assets to sample (local files)
+- `use_objaverse`: enable Objaverse dataset (default: `false`)
+- `objaverse_csv`: path to CSV with all valid(textured and filtered) Objaverse IDs (default: `data/objaverse_v1_ids.csv`)
+- `objaverse_selection`: path to TXT file which contains the instance ids of interest
+- `objaverse_temp_dir`: custom temp directory for downloads (default: system temp)
 - `glbs_per_scene`: number of main assets per scene
 - `glbs_scale_range`: [min, max] uniform scale
 - `glbs_rotation_range`: [min_deg, max_deg] yaw rotation before placement
@@ -219,7 +231,7 @@ Naming: `<lgt_idx>.<frame_idx>.<pass>.<ext>`
 ## Development
 
 - Main entrypoint: `blender_datagen_compose.py`
-- Utilities: `utils/blender_utils.py`, `utils/render_utils.py`, `utils/image_utils.py`
+- Utilities: `utils/blender_utils.py`, `utils/render_utils.py`, `utils/image_utils.py`, `utils/objaverse_utils.py`
 - Example configs: `configs/*.yaml`
 
 ## Acknowledgments

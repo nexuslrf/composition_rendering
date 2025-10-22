@@ -1,0 +1,69 @@
+# Objaverse Rendering Configuration
+# Renders compositional scenes using models from the Objaverse dataset
+
+# Objaverse dataset settings
+use_objaverse: true
+objaverse_csv: 'data/objaverse_v1_ids.csv'
+objaverse_selection: null  # Optional: path to txt file with specific object IDs
+objaverse_temp_dir: null   # Optional: custom temp directory for downloads
+
+# Scene composition
+glbs_per_scene: 2          # Number of Objaverse models per scene
+glbs_random_sample: true
+glbs_rescale: true
+glbs_check_bbox: true
+glbs_scale_range: [1.0, 1.5]
+glbs_rotation_range: [-45, 45]
+glbs_placement_bbox: [-1.0, -1.0, 1.0, 1.0]
+
+# Optional: Add basic shapes
+baseshape_path: 'data/basicshapes'
+shapes_per_scene: 2
+shapes_scale_range: [0.3, 0.8]
+shapes_rotation_range: [-45, 45]
+shapes_placement_bbox: [-1.5, -1.5, 1.5, 1.5]
+
+# Placement plane
+placement_plane: 'data/plane_basic/plane.glb'
+placement_plane_offset: [0, 0, -0.5]
+placement_plane_scale: 10
+
+# Optional: Apply textures to plane
+placement_plane_textures: null  # e.g., 'data/textures'
+
+# Rendering settings
+num_rendering: 10
+num_frames: 8
+num_lighting: 1
+resolution: [256, 256]
+spp: 128
+use_denoise: 'OPTIX'
+transparent_bg: true
+
+# Video mode
+video_mode: 'orbit_cam'  # Options: orbit_cam, oscil_cam, dolly_cam, orbit_lgt, rotat_obj, vtran_obj
+
+# Camera settings
+radius_range: [2.0, 4.0]
+varying_radius: false
+fov_range: [45.0, 45.0]
+cam_phi_range: [0, 360]
+cam_theta_range: [0, 90]
+
+# Environment lighting
+envlight: 'data/envmaps'
+env_scale: 1.0
+random_env_rotation: true
+random_env_flip: true
+random_env_scale: null  # [0.5, 2.0] for random exposure
+
+# Output settings
+out_dir: 'output/objaverse_renders'
+dump_format: 'jpg'
+dump_video: true
+dump_complete: true
+dump_blend: false
+dump_placement: false
+
+# Seed (optional)
+seed: null

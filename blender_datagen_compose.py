@@ -27,7 +27,7 @@ import cv2
 from mathutils import Vector, Matrix, Quaternion
 from pathlib import Path
 from shapely.geometry import Polygon
-from utils import blender_utils, render_utils, image_utils
+from utils import blender_utils, render_utils, image_utils, objaverse_utils
 import matplotlib.pyplot as plt
 from omegaconf import OmegaConf, DictConfig
 from types import SimpleNamespace
@@ -76,7 +76,7 @@ def post_process_rendering(output_dir, feature_fmt='jpg', dump_video=False, vide
     for p in blender_passes:
         img_list = sorted(glob.glob(os.path.join(output_dir, f'{p}.*')))
         if p == 'normal' and len(img_list) > 0:
-            meta_file = json.load(open(os.path.join(output_dir, f'0000.meta.json')))
+            meta_file = json.load(open(os.path.join(output_dir, '0000.meta.json')))
             meta_frames = meta_file['frames']
         for img_path in img_list:
             img_basename = os.path.basename(img_path)
@@ -122,7 +122,7 @@ def post_process_rendering(output_dir, feature_fmt='jpg', dump_video=False, vide
     # Optionally dump videos from RGB frames grouped by lighting index
     if dump_video:
         # Accept any extension for RGB frames (png/jpg)
-        rgb_list = sorted(glob.glob(os.path.join(output_dir, f'*.rgb.*')))
+        rgb_list = sorted(glob.glob(os.path.join(output_dir, '*.rgb.*')))
         # Group frames by lighting index (first token)
         group_dict = {}
         for fp in rgb_list:
@@ -454,7 +454,7 @@ def render_scene(
 class GLTFFileManger:
     def __init__(
         self, files, random_sample=True, rescale=True, 
-        multi_sample_weight=None, check_bbox=False
+        multi_sample_weight=None, check_bbox=False, objaverse_manager=None
     ):
         # just assume files is a list of list of files
         self.files = files
@@ -468,33 +468,61 @@ class GLTFFileManger:
         self.rescale = rescale
         self.multi_sample_weight = multi_sample_weight
         self.check_bbox = check_bbox
+        self.objaverse_manager = objaverse_manager
+        self.use_objaverse = objaverse_manager is not None
+        self.temp_files_to_cleanup = []
+        
         if self.multi_sample_weight is not None:
             assert len(self.multi_sample_weight) == self.num_file_lists
             
     def __len__(self):
+        if self.use_objaverse:
+            return self.objaverse_manager.num_objects
         return self.num_files
 
     def __iter__(self):
         self.idx = 0
         return self
+    
+    def cleanup_temp_files(self):
+        """Clean up any temporary files from this iteration"""
+        for file_path in self.temp_files_to_cleanup:
+            if self.objaverse_manager:
+                self.objaverse_manager.cleanup_file(file_path)
+        self.temp_files_to_cleanup = []
 
     def __next__(self): # inifi-gen
         self.idx += 1
         sample_success = False
         obj_mesh = None
+        file = None
+        
         while not sample_success:
-            if self.random_sample:
-                idx = np.random.choice(self.num_file_lists, p=self.multi_sample_weight)
-                file = np.random.choice(self.files[idx])
+            # Handle Objaverse sampling
+            if self.use_objaverse:
+                obj_data = self.objaverse_manager.sample_random()
+                if obj_data is None:
+                    logger.warning("Failed to download Objaverse object, retrying...")
+                    continue
+                file = obj_data['file_path']
+                self.temp_files_to_cleanup.append(file)
+                obj_name = f"objaverse_{obj_data['object_id']}"
+            # Handle local file sampling
             else:
-                file = self.files_list[(self.idx-1) % self.num_files]
-                sample_success = True
+                if self.random_sample:
+                    idx = np.random.choice(self.num_file_lists, p=self.multi_sample_weight)
+                    file = np.random.choice(self.files[idx])
+                else:
+                    file = self.files_list[(self.idx-1) % self.num_files]
+                    sample_success = True
+                obj_name = file
+                
             try:
                 logger.info(f'Processing: {file}')
                 _obj_mesh = blender_utils.add_object_file(
                     file, with_empty=True, recenter=True, rescale=self.rescale
                 )
-                if self.check_bbox and not check_msh_bbox(obj_mesh):
+                if self.check_bbox and not check_msh_bbox(_obj_mesh):
                     _obj_mesh.clear_objects()
                     del _obj_mesh
                     raise Exception('Invalid bbox')
@@ -502,10 +530,14 @@ class GLTFFileManger:
                     obj_mesh = _obj_mesh
                     sample_success = True
             except Exception as e:
+                import traceback
+                traceback.print_exc()
                 logger.info(f'---> Error: {e}, skipping file {file}')
-                self.files[idx].remove(file)
+                if not self.use_objaverse:
+                    self.files[idx].remove(file)
+                # For Objaverse, just continue to next sample
         
-        return {'mesh': obj_mesh, 'name': file}
+        return {'mesh': obj_mesh, 'name': obj_name}
     
 def main():
     # Parse --config and support legacy flags; additional overrides use OmegaConf dotlist (key=val)
@@ -592,7 +624,9 @@ def main():
         # Unsupported/unused but kept for completeness
         'analytical_sky': False,
         'use_objaverse': False,
+        'objaverse_csv': 'data/objaverse_v1_ids.csv',
         'objaverse_selection': None,
+        'objaverse_temp_dir': None,
         'num_frames': 8,
         'sample_shape_texture': False,
     }
@@ -838,18 +872,39 @@ def main():
                     if k in texture:
                         texture_sample_weight[i] = w
         FLAGS.texture_sample_weight = texture_sample_weight / texture_sample_weight.sum()
+    else:
+        num_plane_textures = 0 
         
-    obj_files = [] 
-    if not FLAGS.use_objaverse and FLAGS.base_path is not None:
+    # Initialize Objaverse manager if needed
+    objaverse_manager = None
+    if FLAGS.use_objaverse:
+        logger.info("Initializing Objaverse dataset...")
+        objaverse_csv_path = os.path.abspath(FLAGS.objaverse_csv)
+        if not os.path.exists(objaverse_csv_path):
+            raise FileNotFoundError(f"Objaverse CSV not found: {objaverse_csv_path}")
+        
+        # Load selection file if provided
+        selection = None
+        if FLAGS.objaverse_selection is not None:
+            selection = objaverse_utils.load_objaverse_selection(FLAGS.objaverse_selection)
+        
+        objaverse_manager = objaverse_utils.ObjaverseManager(
+            csv_path=objaverse_csv_path,
+            temp_dir=FLAGS.objaverse_temp_dir,
+            selection=selection
+        )
+        obj_files = [[]]  # Empty placeholder for ObjaverseManager
+    elif FLAGS.base_path is not None:
+        # Load local files
         base_path_abs = os.path.abspath(FLAGS.base_path)
         if not os.path.isfile(base_path_abs):
-            obj_files.append([os.path.abspath(p) for p in (glob.glob(os.path.join(base_path_abs, "*.glb")) + \
+            obj_files = [[os.path.abspath(p) for p in (glob.glob(os.path.join(base_path_abs, "*.glb")) + \
                 glob.glob(os.path.join(base_path_abs, "*.gltf")) + \
-                glob.glob(os.path.join(base_path_abs, "*.obj")))])
+                glob.glob(os.path.join(base_path_abs, "*.obj")))]]
         else:
-            obj_files.append([os.path.abspath(p) for p in np.loadtxt(base_path_abs, dtype=str).tolist()])
+            obj_files = [[os.path.abspath(p) for p in np.loadtxt(base_path_abs, dtype=str).tolist()]]
     else:
-        raise NotImplementedError("Objaverse is not supported yet")
+        raise ValueError("Either use_objaverse must be True or base_path must be provided")
 
    
     # obj dataloader
@@ -858,9 +913,10 @@ def main():
         random_sample=FLAGS.glbs_random_sample, 
         rescale=FLAGS.glbs_rescale, 
         multi_sample_weight=FLAGS.glbs_multi_sample_weight, 
-        check_bbox=FLAGS.glbs_check_bbox
+        check_bbox=FLAGS.glbs_check_bbox,
+        objaverse_manager=objaverse_manager
     )
-    logger.info(f"Use {len(obj_dataloader)} glbs")
+    logger.info(f"Use {len(obj_dataloader)} objects ({'Objaverse' if FLAGS.use_objaverse else 'local files'})")
 
     # envlight 
     env_src = os.path.abspath(FLAGS.envlight)
@@ -984,18 +1040,25 @@ def main():
 
         if FLAGS.dump_blend:
             # save blender scene
-            bpy.ops.wm.save_as_mainfile(filepath=os.path.join(FLAGS.out_dir, name, f"scene.blend"))
+            bpy.ops.wm.save_as_mainfile(filepath=os.path.join(FLAGS.out_dir, name, "scene.blend"))
         if FLAGS.dump_placement:
             # Plot placement grid with some color map
             fig = plt.figure()
             plt.imshow(placement_grid.T, cmap='tab20', vmin=0, vmax=placement_grid.max().item() + 1)
             # plt.axis('off')
-            plt.savefig(os.path.join(FLAGS.out_dir, name, f"placement.png"))
+            plt.savefig(os.path.join(FLAGS.out_dir, name, "placement.png"))
             plt.close(fig)
         if FLAGS.dump_complete:
             new_complete_file = os.path.join(FLAGS.out_dir, f"COMPLETE_{name}")
             open(new_complete_file, 'w').close()
+        
+        # Clean up temporary Objaverse files for this iteration
+        obj_dataloader.cleanup_temp_files()
 
+    # Final cleanup
+    if objaverse_manager is not None:
+        objaverse_manager.cleanup_all()
+    
     # clean up and safely exit blender
     blender_utils.clear_scene()
     bpy.ops.wm.quit_blender()

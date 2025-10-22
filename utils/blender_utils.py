@@ -421,9 +421,91 @@ def add_object_file(object_path, with_empty=True, recenter=True, rescale=True):
             directory=os.path.dirname(object_path), 
             files=[{"name": os.path.basename(object_path)}]
         )
-    appended_objs = bpy.context.selected_objects
-
-    return ObjContainer(appended_objs, with_empty, recenter, file_name=object_path, rescale=rescale)
+    else:
+        raise ValueError(f"Unsupported file format: {object_path}")
+    
+    # Step 1: Collect all imported objects
+    all_imported_objects = list(bpy.context.selected_objects)
+    
+    if not all_imported_objects:
+        logger.warning(f"No objects were imported from {object_path}")
+        return None
+    
+    # Step 2 & 3: Bake transforms from empties to mesh children, then remove empties
+    mesh_objects = []
+    empties_to_remove = []
+    
+    # First pass: identify mesh objects and empties
+    for obj in all_imported_objects:
+        if obj.type == 'MESH':
+            mesh_objects.append(obj)
+        elif obj.type == 'EMPTY':
+            empties_to_remove.append(obj)
+    
+    # Bake parent transforms to mesh children before removing empties
+    # Process in reverse hierarchy order (children first)
+    for obj in mesh_objects:
+        if obj.parent is not None:
+            # Apply parent's transform to the mesh
+            # This ensures the mesh keeps its world-space position after parent removal
+            obj.matrix_world = obj.matrix_world
+            # Clear parent but keep transform
+            obj.parent = None
+    
+    # Now apply all transforms to mesh data
+    bpy.ops.object.select_all(action='DESELECT')
+    for obj in mesh_objects:
+        obj.select_set(True)
+    
+    # Apply all transforms to mesh data (location, rotation, scale)
+    if mesh_objects:
+        bpy.context.view_layer.objects.active = mesh_objects[0]
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+    
+    # Remove all empty objects
+    bpy.ops.object.select_all(action='DESELECT')
+    for empty in empties_to_remove:
+        empty.select_set(True)
+    bpy.ops.object.delete()
+    
+    # Also remove cameras, lights, and other non-mesh objects that might have been imported
+    bpy.ops.object.select_all(action='DESELECT')
+    for obj in all_imported_objects:
+        if obj not in empties_to_remove and obj.type not in ['MESH'] and obj.name in bpy.data.objects:
+            try:
+                bpy.data.objects.remove(obj, do_unlink=True)
+            except Exception as e:
+                logger.debug(f"Could not remove object {obj.name}: {e}")
+    
+    # Step 4: Merge all mesh objects into a single mesh
+    if len(mesh_objects) > 1:
+        # Select all mesh objects
+        bpy.ops.object.select_all(action='DESELECT')
+        for obj in mesh_objects:
+            if obj.name in bpy.data.objects:  # Check if object still exists
+                obj.select_set(True)
+        
+        # Set active object
+        if mesh_objects[0].name in bpy.data.objects:
+            bpy.context.view_layer.objects.active = mesh_objects[0]
+            
+            # Join all selected meshes into one
+            bpy.ops.object.join()
+            
+            # The result is the active object
+            merged_mesh = bpy.context.active_object
+            final_objects = [merged_mesh]
+        else:
+            # Fallback if joining failed
+            final_objects = [obj for obj in mesh_objects if obj.name in bpy.data.objects]
+    elif len(mesh_objects) == 1:
+        final_objects = mesh_objects
+    else:
+        logger.warning(f"No mesh objects found in {object_path}")
+        return None
+    
+    # Return as ObjContainer
+    return ObjContainer(final_objects, with_empty, recenter, file_name=object_path, rescale=rescale)
 
 def add_blender_object(blendfile, obj_name, with_empty=True, recenter=True, rescale=True):
     # Use the appropriate path separator for the OS
@@ -559,18 +641,20 @@ def setup_camera_settings(resolution_x=1920, resolution_y=1080, fov_rad=1.047, c
 
     camera_obj = bpy.data.objects['Camera']
     camera_data = camera_obj.data
-    camera_data.clip_start = 0.02
 
-    if cam_type == 'PERSP':
-        # Set field of view
-        camera_data.type = 'PERSP'
-        camera_data.lens_unit = 'FOV'
-        camera_data.angle = fov_rad
-        logger.info(f"Camera settings: {resolution_x}x{resolution_y}, FOV: {fov_rad}")
-    elif cam_type == 'PANO':
-        camera_data.type = 'PANO'
-        camera_data.panorama_type = 'EQUIRECTANGULAR'
-        logger.info(f"Camera settings: {resolution_x}x{resolution_y}, PANO: EQUIRECTANGULAR")
+    if camera_data is not None:
+        camera_data.clip_start = 0.02
+
+        if cam_type == 'PERSP':
+            # Set field of view
+            camera_data.type = 'PERSP'
+            camera_data.lens_unit = 'FOV'
+            camera_data.angle = fov_rad
+            logger.info(f"Camera settings: {resolution_x}x{resolution_y}, FOV: {fov_rad}")
+        elif cam_type == 'PANO':
+            camera_data.type = 'PANO'
+            camera_data.panorama_type = 'EQUIRECTANGULAR'
+            logger.info(f"Camera settings: {resolution_x}x{resolution_y}, PANO: EQUIRECTANGULAR")
 
 
 def setup_cycles_rendering(samples=128, use_denoise=None, transparent_bg=False):
